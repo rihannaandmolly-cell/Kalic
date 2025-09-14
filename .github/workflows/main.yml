@@ -1,0 +1,62 @@
+name: RDP-Kali
+on:
+  workflow_dispatch:
+jobs:
+  secure-rdp:
+    runs-on: ubuntu-latest   # يمكن تغييره إلى self-hosted runner بكالي إذا متوفر
+    timeout-minutes: 3600
+    steps:
+      - name: Update & Install Required Packages
+        run: |
+          sudo apt update && sudo apt upgrade -y
+          sudo apt install -y xrdp xfce4 xfce4-terminal wget ufw
+
+      - name: Configure RDP
+        run: |
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
+          sudo ufw allow 3389/tcp
+          sudo ufw reload
+
+      - name: Create RDP User
+        run: |
+          username="toolboxlap"
+          password="admin@123"
+          if ! id -u $username >/dev/null 2>&1; then
+              sudo useradd -m $username
+              echo "$username:$password" | sudo chpasswd
+              sudo usermod -aG sudo $username
+          fi
+          echo "RDP_CREDS=User: $username | Password: $password" >> $GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Connect Tailscale
+        run: |
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$GITHUB_RUN_ID
+          TS_IP=$(tailscale ip -4)
+          if [ -z "$TS_IP" ]; then
+              echo "Tailscale IP not assigned. Exiting."
+              exit 1
+          fi
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+
+      - name: Verify RDP Accessibility
+        run: |
+          echo "Tailscale IP: $TAILSCALE_IP"
+          nc -zv $TAILSCALE_IP 3389 || { echo "TCP connection to RDP port 3389 failed"; exit 1; }
+          echo "TCP connectivity successful!"
+
+      - name: Maintain Connection
+        run: |
+          echo "=== RDP ACCESS ==="
+          echo "Address: $TAILSCALE_IP"
+          echo "Username: toolboxlap"
+          echo "Password: admin@123"
+          echo "=================="
+          while true; do
+            echo "[$(date)] RDP Active - terminate workflow to stop"
+            sleep 300
+          done
